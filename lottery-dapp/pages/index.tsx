@@ -42,6 +42,8 @@ import {
   SearchIcon,
   ChevronDown,
   ChevronUp,
+  Grid,
+  List,
 } from "lucide-react"
 import { formatDateTime, truncateAddress, isValidAddress } from "../utils/format"
 import { useRouter } from "next/navigation"
@@ -73,6 +75,9 @@ interface LotteryDetails {
   address: string; // 添加address字段
 }
 
+// 视图类型枚举
+type ViewType = 'card' | 'list';
+
 export default function Home() {
   const router = useRouter()
   const { provider, signer, account, chainId, isConnected, isNetworkSupported, connectWallet, switchNetwork, disconnectWallet, disconnecting } = useWeb3()
@@ -85,9 +90,15 @@ export default function Home() {
   const [contractError, setContractError] = useState(false)
   const [lotteryIdInput, setLotteryIdInput] = useState("")
   const [showIdInput, setShowIdInput] = useState(false)
+  const [viewType, setViewType] = useState<ViewType>('card') // 默认卡片视图
   
   // 获取当前网络的代币符号
   const tokenSymbol = chainId ? getCurrentNetworkSymbol(chainId) : "ETH";
+
+  // 切换视图类型
+  const toggleViewType = () => {
+    setViewType(prev => prev === 'card' ? 'list' : 'card');
+  };
 
   // 获取所有抽奖信息
   const fetchLotteries = useCallback(async () => {
@@ -485,7 +496,19 @@ export default function Home() {
         {/* 抽奖列表 */}
         <section id="lotteries" className="py-12">
           <div className="flex justify-between items-center mb-8">
-            <h2 className="text-3xl font-bold">最新抽奖活动</h2>
+            <div className="flex items-center gap-4">
+              <h2 className="text-3xl font-bold">最新抽奖活动</h2>
+              {/* 视图切换按钮 */}
+              <Button 
+                variant="outline" 
+                size="icon"
+                className="ml-2"
+                onClick={toggleViewType}
+                title={viewType === 'card' ? "切换到列表视图" : "切换到卡片视图"}
+              >
+                {viewType === 'card' ? <List className="h-5 w-5" /> : <Grid className="h-5 w-5" />}
+              </Button>
+            </div>
             
             {/* 搜索框 */}
             <div className="relative w-full max-w-sm">
@@ -526,8 +549,8 @@ export default function Home() {
                 {searchQuery ? "未找到匹配的抽奖活动" : "暂无抽奖活动"}
               </p>
             </div>
-          ) : (
-            // 抽奖卡片列表
+          ) : viewType === 'card' ? (
+            // 卡片视图
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredLotteries.map((lottery) => (
                 <Card key={lottery.id} className="overflow-hidden">
@@ -570,6 +593,46 @@ export default function Home() {
                   </CardFooter>
                 </Card>
               ))}
+            </div>
+          ) : (
+            // 列表视图
+            <div className="overflow-hidden border rounded-lg">
+              <table className="w-full">
+                <thead className="bg-muted">
+                  <tr>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">抽奖名称</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">ID</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">入场费</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">奖池</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">开奖时间</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">状态</th>
+                    <th className="px-4 py-3 text-left font-medium text-muted-foreground">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredLotteries.map((lottery) => (
+                    <tr key={lottery.id} className="hover:bg-muted/50">
+                      <td className="px-4 py-3 font-medium">{lottery.name || `抽奖 #${lottery.id}`}</td>
+                      <td className="px-4 py-3 text-muted-foreground">{lottery.id}</td>
+                      <td className="px-4 py-3">{lottery.entryFee} {tokenSymbol}</td>
+                      <td className="px-4 py-3">{lottery.prizePool} {tokenSymbol}</td>
+                      <td className="px-4 py-3">{formatDrawTime(lottery.drawTime)}</td>
+                      <td className="px-4 py-3">
+                        {getLotteryStateDisplay(lottery.state, lottery.drawTime)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Button 
+                          size="sm"
+                          variant="outline"
+                          onClick={() => router.push(`/lottery/${lottery.id}`)}
+                        >
+                          查看详情
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </section>
