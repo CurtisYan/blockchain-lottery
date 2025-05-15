@@ -8,7 +8,7 @@ const config: HardhatUserConfig = {
   solidity: "0.8.28",
   networks: {
     // Polkadot EVM 平行链测试网配置
-    moonbaseAlpha: {
+    moonbase: {
       url: process.env.YOUR_TESTNET_RPC_URL || "",
       accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [],
       chainId: 1287,
