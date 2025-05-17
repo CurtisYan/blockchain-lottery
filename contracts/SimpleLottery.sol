@@ -28,7 +28,7 @@ contract SimpleLottery is Ownable {
 
     LotteryState public currentLotteryState; // 当前状态
 
-    // --- 事件 ---
+    // --- 事件 --- 
     event LotteryCreated(string indexed id, address indexed owner, string name, uint256 entryFee, uint256 drawTime);
     event EnteredLottery(string indexed lotteryId, address indexed participant);
     event WinnerDrawn(string indexed lotteryId, address indexed winner, uint256 prizeAmount);
