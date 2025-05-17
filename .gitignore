@@ -40,3 +40,10 @@ typechain-types/
 # 合约部署信息
 deployed-contracts.json
 EOL
+
+# 前端相关
+/lottery-dapp/node_modules
+/lottery-dapp/.next
+/lottery-dapp/build
+/lottery-dapp/dist
+/lottery-dapp/.cache
