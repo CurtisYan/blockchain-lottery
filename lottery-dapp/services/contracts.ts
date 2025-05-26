@@ -848,4 +848,12 @@ if (typeof window !== 'undefined') {
             results[chainIdStr] = { success: false, error: "没有合约代码" };
           }
         } catch (error: any) {
-          console.error(`
+          console.error(`在网络 ${chainId} 上调用失败:`, error);
+          results[chainIdStr] = { success: false, error: error.message };
+        }
+      }
+      
+      return results;
+    },
+  };
+}
