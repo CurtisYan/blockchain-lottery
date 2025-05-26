@@ -2,8 +2,8 @@ import { ethers } from "ethers"
 import LotteryFactoryABI from "../abis/LotteryFactory.json"
 import SimpleLotteryABI from "../abis/SimpleLottery.json"
 
-// 从环境变量获取合约地址，如果未设置则使用默认值
-export const LOTTERY_FACTORY_ADDRESS = process.env.NEXT_PUBLIC_LOTTERY_FACTORY_ADDRESS || "0x84F045AB0F7Fe1278A1D2fb2E334409894A8E35D"
+// 从环境变量获取合约地址
+export const LOTTERY_FACTORY_ADDRESS = process.env.NEXT_PUBLIC_LOTTERY_FACTORY_ADDRESS
 
 // 支持的网络列表及其合约地址
 export const SUPPORTED_NETWORKS: Record<number, {
@@ -38,14 +38,14 @@ export const SUPPORTED_NETWORKS: Record<number, {
 // 备用RPC列表 - 按延迟从低到高排序
 export const BACKUP_RPCS = [
   // WebSocket连接 - 最快
-  "wss://moonbase-alpha.drpc.org",  // 0.122s - 最佳性能
+  "wss://moonbase-alpha.drpc.org",  
   // HTTP连接 - 按延迟排序
-  "https://rpc.testnet.moonbeam.network",  // 0.144s
-  "https://rpc.api.moonbase.moonbeam.network",  // 0.253s
-  "https://moonbeam-alpha.api.onfinality.io/public",  // 0.331s
-  "https://moonbase-rpc.dwellir.com",  // 0.368s
-  "https://moonbase-alpha.public.blastapi.io",  // 0.380s
-  "https://moonbase-alpha.drpc.org",  // 0.440s
+  "https://rpc.testnet.moonbeam.network", 
+  "https://rpc.api.moonbase.moonbeam.network", 
+  "https://moonbeam-alpha.api.onfinality.io/public", 
+  "https://moonbase-rpc.dwellir.com", 
+  "https://moonbase-alpha.public.blastapi.io", 
+  "https://moonbase-alpha.drpc.org", 
   // 备用WebSocket - 不太稳定
   "wss://moonbase-alpha.public.blastapi.io",  // 1.021s - 性能较差
   // 原有备用
@@ -119,7 +119,7 @@ export function getLotteryFactoryContract(signerOrProvider: ethers.Signer | ethe
 
 // 获取 SimpleLottery 合约实例
 export function getLotteryInstanceContract(address: string, signerOrProvider: ethers.Signer | ethers.Provider) {
-  return new ethers.Contract(address, SimpleLotteryABI.abi, signerOrProvider)
+  return new ethers.Contract(String(address), SimpleLotteryABI.abi, signerOrProvider)
 }
 
 // 使用RPC提供商获取只读合约实例
@@ -744,6 +744,32 @@ export function listenToLotteryEvents(
   }
 }
 
+// 赞助抽奖，向合约转账
+export async function sponsorLottery(signer: ethers.Signer, lotteryAddress: string, amountEth: string) {
+  if (!lotteryAddress) throw new Error("抽奖合约地址无效")
+  try {
+    const instance = getLotteryInstanceContract(lotteryAddress, signer)
+    const tx = await instance.sponsor({ value: ethers.parseEther(amountEth) })
+    await tx.wait()
+    return tx
+  } catch (error) {
+    throw new Error(handleContractError(error))
+  }
+}
+
+// 修改开奖时间，仅 owner 可用
+export async function setDrawTime(signer: ethers.Signer, lotteryAddress: string, newTime: number) {
+  if (!lotteryAddress) throw new Error("抽奖合约地址无效")
+  try {
+    const instance = getLotteryInstanceContract(lotteryAddress, signer)
+    const tx = await instance.setDrawTime(newTime)
+    await tx.wait()
+    return tx
+  } catch (error) {
+    throw new Error(handleContractError(error))
+  }
+}
+
 // 暴露全局调试对象，用于在浏览器控制台中调试
 if (typeof window !== 'undefined') {
   // @ts-ignore
@@ -822,14 +848,4 @@ if (typeof window !== 'undefined') {
             results[chainIdStr] = { success: false, error: "没有合约代码" };
           }
         } catch (error: any) {
-          console.error(`连接网络 ${chainIdStr} 失败:`, error);
-          results[chainIdStr] = { success: false, error: error.message };
-        }
-      }
-      
-      return results;
-    }
-  };
-  
-  console.log("合约调试工具已加载，使用window.contractDebug.checkContract()检查合约");
-}
+          console.error(`

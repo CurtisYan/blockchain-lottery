@@ -8,6 +8,8 @@ import {
   enterLottery,
   drawWinner,
   claimPrize,
+  sponsorLottery,
+  setDrawTime,
 } from "../../services/contracts"
 import { formatDateTime, truncateAddress, calculateCountdown, isValidAddress } from "../../utils/format"
 import { Button } from "../../components/ui/button"
@@ -33,9 +35,15 @@ import {
   CheckCircle,
   AlertCircle,
   Timer,
+  Copy,
+  DollarSign,
+  Calendar,
 } from "lucide-react"
 import Layout from "../../components/Layout"
 import LoadingSpinner from "../../components/LoadingSpinner"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../../components/ui/dialog"
+import { Input } from "../../components/ui/input"
+import { format } from "date-fns"
 
 export default function LotteryDetail() {
   const router = useRouter()
@@ -50,17 +58,21 @@ export default function LotteryDetail() {
 
   // 获取抽奖详情
   const fetchLotteryDetails = async () => {
-    if (!provider || !id || typeof id !== "string") return
+    // 只有 id 是 string 且 provider 存在时才请求
+    if (!provider || !id || typeof id !== "string" || id === "") return
 
     try {
       const address = await getLotteryInstanceAddress(provider, id)
       if (address === ethers.ZeroAddress) {
-        toast({
-          title: "抽奖不存在",
-          description: `找不到ID为 ${id} 的抽奖`,
-          variant: "destructive",
-        })
-        router.push("/")
+        // 只在首次加载时提示和跳转，避免页面闪烁"合约不存在的提示"
+        if (loading) {
+          toast({
+            title: "抽奖不存在",
+            description: `找不到ID为 ${id} 的抽奖`,
+            variant: "destructive",
+          })
+          router.push("/")
+        }
         return
       }
 
@@ -68,23 +80,23 @@ export default function LotteryDetail() {
       console.log("抽奖详情页获取到的原始数据:", details);
       console.log("抽奖名称字段:", {
         lotteryName: details.lotteryName,
-        name: details.name,
         id
       });
       
       // 确保lotteryName被正确设置
-      if (!details.lotteryName && !details.name) {
+      if (!details.lotteryName) {
         console.warn("警告: 未能获取到抽奖名称，将使用ID作为名称");
       }
       
       setLottery({ id, address, ...details })
     } catch (error) {
-      console.error("获取抽奖详情失败:", error)
-      toast({
-        title: "获取详情失败",
-        description: "无法获取抽奖详情",
-        variant: "destructive",
-      })
+      if (loading) {
+        toast({
+          title: "获取详情失败",
+          description: "无法获取抽奖详情",
+          variant: "destructive",
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -375,6 +387,90 @@ export default function LotteryDetail() {
     return null
   }
 
+  // 自动开奖：每10秒检测一次，满足条件自动开奖
+  // 触发条件：用户点开这个页面，就可触发查询功能
+  useEffect(() => {
+    if (!signer || !lottery) return
+
+    let timer: NodeJS.Timeout
+
+    const autoDraw = async () => {
+      // 只在可开奖且未处理时自动开奖
+      if (lottery.canDraw && !processing) {
+        setProcessing(true)
+        try {
+          await drawWinner(signer, lottery.address)
+          toast({
+            title: "自动开奖成功",
+            description: "已自动开奖，刷新可见中奖者",
+          })
+          fetchLotteryDetails()
+        } catch (e: any) {
+          // 已开奖等常见错误不提示
+          if (!e.message?.includes("已经开过奖")) {
+            toast({
+              title: "自动开奖失败",
+              description: e.message || "未知错误",
+              variant: "destructive",
+            })
+          }
+        } finally {
+          setProcessing(false)
+        }
+      }
+    }
+
+    timer = setInterval(autoDraw, 10000) // 10秒轮询
+    return () => clearInterval(timer)
+  }, [signer, lottery, processing])
+
+  // 分享按钮逻辑
+  const handleShare = () => {
+    navigator.clipboard.writeText(window.location.href)
+    toast({ title: "链接已复制", description: "可以分享给好友啦" })
+  }
+
+  // 赞助弹窗相关
+  const [showSponsor, setShowSponsor] = useState(false)
+  const [sponsorAmount, setSponsorAmount] = useState("")
+  const [sponsorLoading, setSponsorLoading] = useState(false)
+  const handleSponsor = async () => {
+    if (!signer || !lottery || !sponsorAmount) return
+    setSponsorLoading(true)
+    try {
+      await sponsorLottery(signer, lottery.address, sponsorAmount)
+      toast({ title: "赞助成功", description: `已赞助 ${sponsorAmount} ETH` })
+      setShowSponsor(false)
+      setSponsorAmount("")
+      fetchLotteryDetails()
+    } catch (e: any) {
+      toast({ title: "赞助失败", description: e.message, variant: "destructive" })
+    } finally {
+      setSponsorLoading(false)
+    }
+  }
+
+  // 修改开奖时间弹窗相关
+  const [showDrawTime, setShowDrawTime] = useState(false)
+  const [newDrawTime, setNewDrawTime] = useState("")
+  const [drawTimeLoading, setDrawTimeLoading] = useState(false)
+  const handleChangeDrawTime = async () => {
+    if (!signer || !lottery || !newDrawTime) return
+    setDrawTimeLoading(true)
+    try {
+      const unixTime = Math.floor(new Date(newDrawTime).getTime() / 1000)
+      await setDrawTime(signer, lottery.address, unixTime)
+      toast({ title: "开奖时间已修改", description: format(new Date(newDrawTime), "yyyy-MM-dd HH:mm:ss") })
+      setShowDrawTime(false)
+      setNewDrawTime("")
+      fetchLotteryDetails()
+    } catch (e: any) {
+      toast({ title: "修改失败", description: e.message, variant: "destructive" })
+    } finally {
+      setDrawTimeLoading(false)
+    }
+  }
+
   if (!isConnected || !isCorrectNetwork) {
     return (
       <Layout>
@@ -424,13 +520,15 @@ export default function LotteryDetail() {
 
   return (
     <Layout>
-      <div className="mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <Link href="/" className="text-muted-foreground hover:text-foreground flex items-center">
           <ArrowLeft className="mr-2 h-4 w-4" />
           返回抽奖列表
         </Link>
+        <Button variant="outline" size="sm" onClick={handleShare} className="flex items-center gap-2">
+          <Copy className="h-4 w-4" /> 分享
+        </Button>
       </div>
-
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="md:col-span-2">
           <Card>
@@ -438,7 +536,7 @@ export default function LotteryDetail() {
               <div className="flex justify-between items-start">
                 <div>
                   <CardTitle className="text-2xl">
-                    {lottery.lotteryName || lottery.name || `抽奖 #${lottery.id}`}
+                    {lottery.lotteryName || `抽奖 #${lottery.id}`}
                   </CardTitle>
                   <CardDescription className="mt-1">ID: {lottery.id}</CardDescription>
                 </div>
@@ -447,6 +545,17 @@ export default function LotteryDetail() {
             </CardHeader>
             
             <CardContent className="space-y-4">
+              {/* 赞助和修改开奖时间入口 */}
+              <div className="flex gap-3 mb-2">
+                <Button variant="outline" size="sm" onClick={() => setShowSponsor(true)} className="flex items-center gap-2">
+                  <DollarSign className="h-4 w-4" /> 我要赞助
+                </Button>
+                {isOwner() && lottery.currentState === 0 && (
+                  <Button variant="outline" size="sm" onClick={() => setShowDrawTime(true)} className="flex items-center gap-2">
+                    <Calendar className="h-4 w-4" /> 修改开奖时间
+                  </Button>
+                )}
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="flex items-center p-4 rounded-lg border">
                   <CreditCard className="h-8 w-8 text-primary mr-4" />
@@ -599,6 +708,52 @@ export default function LotteryDetail() {
           </Card>
         </div>
       </div>
+      {/* 赞助弹窗 */}
+      <Dialog open={showSponsor} onOpenChange={setShowSponsor}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>我要赞助</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              type="number"
+              min="0.001"
+              step="0.001"
+              placeholder="输入ETH数量"
+              value={sponsorAmount}
+              onChange={e => setSponsorAmount(e.target.value)}
+              disabled={sponsorLoading}
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={handleSponsor} disabled={!sponsorAmount || sponsorLoading}>
+              {sponsorLoading ? (<><LoadingSpinner size="sm" className="mr-2" />提交中...</>) : "确认赞助"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* 修改开奖时间弹窗 */}
+      <Dialog open={showDrawTime} onOpenChange={setShowDrawTime}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>修改开奖时间</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Input
+              type="datetime-local"
+              value={newDrawTime}
+              onChange={e => setNewDrawTime(e.target.value)}
+              disabled={drawTimeLoading}
+              min={format(new Date(), "yyyy-MM-dd'T'HH:mm")}
+            />
+          </div>
+          <DialogFooter>
+            <Button onClick={handleChangeDrawTime} disabled={!newDrawTime || drawTimeLoading}>
+              {drawTimeLoading ? (<><LoadingSpinner size="sm" className="mr-2" />提交中...</>) : "确认修改"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Layout>
   )
 } 
