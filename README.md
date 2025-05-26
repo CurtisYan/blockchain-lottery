@@ -108,6 +108,8 @@ npx hardhat run scripts/deploy_LotteryFactory.ts --network moonbase
 - 将ABI文件复制到前端目录
 - 更新前端环境变量
 
+如果后端有环境变量.env 文件，要改一改合约地址。一般只用更新前端的环境变量就够了。
+
 ### 4. 验证合约（可选）
 
 ```bash
