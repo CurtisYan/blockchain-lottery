@@ -18,6 +18,11 @@ contract SimpleLottery is Ownable {
     uint256 public closingTime;      // 参与截止时间 (可选，基础版简化为开奖前)
     uint256 public drawTime;         // 预设的开奖时间戳
 
+    // 添加参与记录映射
+    mapping(address => bool) public hasParticipated;
+    // 记录是否已开奖
+    bool public isDrawn;
+
     // 抽奖状态
     enum LotteryState {
         Open,        // 开放参与
@@ -34,6 +39,8 @@ contract SimpleLottery is Ownable {
     event WinnerDrawn(string indexed lotteryId, address indexed winner, uint256 prizeAmount);
     event PrizeClaimed(string indexed lotteryId, address indexed winner, uint256 prizeAmount);
     event LotteryStateChanged(string indexed lotteryId, LotteryState newState);
+    event SponsorReceived(address indexed sponsor, uint256 amount);
+    event DrawTimeChanged(uint256 oldTime, uint256 newTime);
 
     constructor(
         string memory _lotteryId,  // 用户自定义的该抽奖的唯一ID
@@ -42,12 +49,14 @@ contract SimpleLottery is Ownable {
         uint256 _drawTime,  // 预设的开奖时间戳
         address _owner  // 该抽奖实例的发起人地址
     ) payable Ownable(_owner) {
+        require(_drawTime > block.timestamp, unicode"开奖时间必须在未来");
         lotteryId = _lotteryId;
         lotteryName = _lotteryName;
         entryFee = _entryFee;
         drawTime = _drawTime;
         currentLotteryState = LotteryState.Open;
         prizePool = msg.value;
+        isDrawn = false;
 
         emit LotteryCreated(_lotteryId, _owner, _lotteryName, _entryFee, _drawTime);
         emit LotteryStateChanged(_lotteryId, LotteryState.Open);
@@ -58,33 +67,49 @@ contract SimpleLottery is Ownable {
         require(currentLotteryState == LotteryState.Open, unicode"当前抽奖未开放参与");
         require(block.timestamp < drawTime, unicode"已到开奖时间，无法参与");
         require(msg.value == entryFee, unicode"支付的入场费不正确");
-
+        require(!hasParticipated[msg.sender], unicode"您已经参与过此次抽奖");
+        
+        hasParticipated[msg.sender] = true;
         participants.push(msg.sender);
         prizePool += msg.value;
 
         emit EnteredLottery(lotteryId, msg.sender);
+
+        // 如果已到开奖时间，自动触发开奖
+        if (block.timestamp >= drawTime && !isDrawn) {
+            _drawWinner();
+        }
     }
 
-    // 开奖：必须在抽奖处于 Open 状态且已到或超过开奖时间，并且有参与者时调用
-    function drawWinner() public onlyOwner {
-        // 检查状态是否开放且已到开奖时间
-        require(currentLotteryState == LotteryState.Open, unicode"抽奖未开放或未到开奖时间");
-        require(block.timestamp >= drawTime, unicode"未到开奖时间，无法开奖");
-        // 检查是否有参与者
+    // 内部开奖函数
+    function _drawWinner() internal {
+        require(!isDrawn, unicode"已经开过奖了");
         require(participants.length > 0, unicode"没有参与者，无法开奖");
 
         currentLotteryState = LotteryState.Drawing;
         emit LotteryStateChanged(lotteryId, LotteryState.Drawing);
 
-        // 注意：此随机数方法目前不安全，待优化
-        uint256 randomIndex = uint256(keccak256(abi.encodePacked(block.timestamp, block.prevrandao, participants.length, msg.sender))) % participants.length;
+        uint256 randomIndex = uint256(keccak256(abi.encodePacked(
+            block.timestamp,
+            block.prevrandao,
+            participants.length,
+            msg.sender
+        ))) % participants.length;
 
-        winner = participants[randomIndex]; // 选出中奖者
+        winner = participants[randomIndex];
+        isDrawn = true;
 
         emit WinnerDrawn(lotteryId, winner, prizePool);
 
-        currentLotteryState = LotteryState.Claimable; // 改为可领奖状态
+        currentLotteryState = LotteryState.Claimable;
         emit LotteryStateChanged(lotteryId, LotteryState.Claimable);
+    }
+
+    // 公开的开奖函数，任何人都可以在时间到达后调用
+    function drawWinner() public {
+        require(block.timestamp >= drawTime, unicode"未到开奖时间，无法开奖");
+        require(currentLotteryState == LotteryState.Open, unicode"抽奖未开放或已开奖");
+        _drawWinner();
     }
 
     // 中奖者调用此函数领取奖金。
@@ -109,11 +134,22 @@ contract SimpleLottery is Ownable {
          // 检查抽奖是否已结束
          require(currentLotteryState == LotteryState.Closed, unicode"抽奖未结束，无法重置");
 
-         // 清理状态，表示本场次彻底结束
-         // 清空参与者列表
+         // 清除所有参与记录
+         for (uint i = 0; i < participants.length; i++) {
+             delete hasParticipated[participants[i]];
+         }
          delete participants;
          // 重置中奖者地址
          winner = address(0);
+         isDrawn = false;
+    }
+
+    // 检查是否可以开奖
+    function canDraw() public view returns (bool) {
+        return block.timestamp >= drawTime && 
+               currentLotteryState == LotteryState.Open && 
+               !isDrawn &&
+               participants.length > 0;
     }
 
     // 查询函数
@@ -152,6 +188,23 @@ contract SimpleLottery is Ownable {
             currentLotteryState,
             winner
         );
+    }
+
+    // 赞助函数，任何人可调用，金额累加到奖池
+    function sponsor() external payable {
+        require(currentLotteryState == LotteryState.Open, unicode"抽奖未结束，不能赞助");
+        require(msg.value > 0, unicode"赞助金额需大于0");
+        prizePool += msg.value;
+        emit SponsorReceived(msg.sender, msg.value);
+    }
+
+    // 修改开奖时间，仅限 owner，且未开奖前可改
+    function setDrawTime(uint256 newTime) external onlyOwner {
+        require(currentLotteryState == LotteryState.Open, unicode"已开奖不能修改时间");
+        require(newTime > block.timestamp, unicode"开奖时间必须在未来");
+        uint256 old = drawTime;
+        drawTime = newTime;
+        emit DrawTimeChanged(old, newTime);
     }
 
     // 允许直接发送ETH到合约
