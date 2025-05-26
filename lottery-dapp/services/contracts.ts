@@ -523,6 +523,9 @@ export async function getLotteryDetails(provider: ethers.Provider, lotteryAddres
     // 获取基本信息
     console.log("获取抽奖详情，地址:", lotteryAddress);
     const details = await instance.getLotteryDetails();
+    console.log("合约返回的原始详情:", details)
+    console.log("details[0] =", details[0])
+    console.log("details.lotteryName =", details.lotteryName)
     console.log("合约返回的原始详情:", details);
     
     // 直接检查数组属性，在ethers v6中，返回值既是数组也是对象
