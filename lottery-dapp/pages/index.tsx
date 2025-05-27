@@ -176,6 +176,7 @@ export default function Home() {
         try {
           // 获取该抽奖实例的合约地址
           const instanceAddress = await factoryContract.getLotteryInstanceAddress(id)
+          console.log("实例合约地址", instanceAddress)
           
           if (instanceAddress && instanceAddress !== ethers.ZeroAddress) {
             // 获取该抽奖实例的详细信息

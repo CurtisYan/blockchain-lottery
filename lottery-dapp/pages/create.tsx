@@ -180,6 +180,7 @@ export default function CreateLottery() {
 
     setLoading(true)
     try {
+      console.log("创建抽奖参数：", { lotteryId, name, entryFee, drawTimeInSeconds });
       await createLottery(signer, lotteryId, name, entryFee, drawTimeInSeconds)
       
       toast({
